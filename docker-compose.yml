@@ -1,0 +1,102 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: communityhub
+    ports:
+      - "5434:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+
+  web:
+    build: .
+    depends_on:
+      - db
+      - rabbitmq
+      - redis
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/communityhub
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=supersecretkey
+      - ACCESS_TOKEN_EXPIRE_MINUTES=60
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./app:/app/app
+
+  worker:
+    build: .
+    depends_on:
+      - db
+      - rabbitmq
+      - redis
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/communityhub
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=supersecretkey
+    command: ["python", "-u", "-c", "from app.events.consumer import run_worker; import asyncio; asyncio.run(run_worker())"]
+
+  # Test service - run tests in Docker with all dependencies
+  # This service uses the 'testing' profile and won't start with 'docker compose up'
+  # Run tests with: docker compose run --rm test
+  test:
+    profiles: ["testing"]
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    depends_on:
+      - db
+      - rabbitmq
+      - redis
+    environment:
+      - TEST_DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/communityhub_test
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=supersecretkey
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/communityhub
+      - DB_HOST=db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - TEST_DB_NAME=communityhub_test
+    volumes:
+      - ./app:/app/app
+      - ./tests:/app/tests
+      - ./pytest.ini:/app/pytest.ini
+      - ./htmlcov:/app/htmlcov
+    command: >
+      sh -c "
+        echo '⏳ Waiting for services...' &&
+        sleep 5 &&
+        echo '🔧 Creating test database...' &&
+        python create_test_db.py &&
+        echo '🧪 Running tests...' &&
+        pytest tests/ -v --cov=app --cov-report=html --cov-report=term
+      "
+
+volumes:
+  db_data:

@@ -1,0 +1,18 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+
+# Install dependencies
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY ./app /app/app
+COPY ./tests /app/tests
+COPY ./pytest.ini /app/pytest.ini
+COPY ./create_test_db.py /app/create_test_db.py
+
+# Run tests by default
+CMD ["pytest", "tests/", "-v", "--cov=app", "--cov-report=html", "--cov-report=term"]
