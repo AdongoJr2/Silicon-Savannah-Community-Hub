@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from app.schemas import EventCreate, EventOut, EventCategory
+from app.schemas import EventCreate, EventOut, EventCategory, PaginatedResponse, PaginationMetadata
 from app.db.session import get_session
 from app.services.event_service import EventService
 from app.auth import get_current_user, role_required
@@ -21,10 +21,10 @@ async def create_event_endpoint(
     ev = await event_service.create_event(payload, user.id)
     return ev
 
-@router.get("/", response_model=List[EventOut])
+@router.get("/", response_model=PaginatedResponse[EventOut])
 async def get_events(
-    skip: int = Query(0, ge=0, description="Number of records to skip"),
-    limit: int = Query(20, ge=1, le=100, description="Maximum number of records to return"),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    per_page: int = Query(20, ge=1, le=100, description="Number of items per page"),
     created_by: Optional[str] = Query(None, description="Filter by organizer user ID"),
     starts_after: Optional[datetime] = Query(None, description="Filter events starting after this datetime"),
     starts_before: Optional[datetime] = Query(None, description="Filter events starting before this datetime"),
@@ -34,24 +34,42 @@ async def get_events(
 ):
     """
     List events with pagination, filtering, and search support.
-    - skip: Number of records to skip (default: 0)
-    - limit: Maximum number of records to return (default: 20, max: 100)
+    - page: Page number, 1-indexed (default: 1)
+    - per_page: Number of items per page (default: 20, max: 100)
     - created_by: Filter by organizer user ID
     - starts_after: Filter events starting after this datetime (ISO format)
     - starts_before: Filter events starting before this datetime (ISO format)
     - search: Full-text search in event title and description
     - category: Filter by event category (technology, business, arts, sports, etc.)
     """
-    events = await event_service.list_events(
+    # Calculate skip/offset from page number
+    skip = (page - 1) * per_page
+    
+    # Get total count and events
+    total_count, events = await event_service.list_events_paginated(
         skip=skip,
-        limit=limit,
+        limit=per_page,
         created_by=created_by,
         starts_after=starts_after,
         starts_before=starts_before,
         search=search,
         category=category.value if category else None,
     )
-    return events
+    
+    # Calculate pagination metadata
+    total_pages = (total_count + per_page - 1) // per_page  # Ceiling division
+    
+    return PaginatedResponse(
+        items=events,
+        pagination=PaginationMetadata(
+            total=total_count,
+            page=page,
+            per_page=per_page,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_prev=page > 1
+        )
+    )
 
 @router.get("/{event_id}", response_model=EventOut)
 async def get_event_detail(

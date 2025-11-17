@@ -152,6 +152,41 @@ async def list_events(
     
     return result
 
+@cached('events:count', expire=300)  # Cache for 5 minutes
+async def count_events(
+    db: AsyncSession,
+    created_by: Optional[str] = None,
+    starts_after: Optional[datetime] = None,
+    starts_before: Optional[datetime] = None,
+    search: Optional[str] = None,
+    category: Optional[str] = None
+) -> int:
+    """
+    Count total events matching the given filters.
+    Used for pagination metadata.
+    """
+    q = select(func.count(Event.id))
+    
+    # Apply same filters as list_events
+    if created_by:
+        q = q.where(Event.created_by == created_by)
+    if starts_after:
+        q = q.where(Event.starts_at >= starts_after)
+    if starts_before:
+        q = q.where(Event.starts_at <= starts_before)
+    if category:
+        q = q.where(Event.category == category)
+    
+    # Apply full-text search
+    if search:
+        search_vector = func.to_tsvector('english', 
+            func.coalesce(Event.title, '') + ' ' + func.coalesce(Event.description, ''))
+        search_query = func.plainto_tsquery('english', search)
+        q = q.where(search_vector.op('@@')(search_query))
+    
+    res = await db.execute(q)
+    return res.scalar() or 0
+
 @cached('events:detail', expire=300)  # Cache for 5 minutes
 async def get_event(db: AsyncSession, event_id):
     q = select(Event).where(Event.id == event_id)

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, List, Generic, TypeVar
 from uuid import UUID
 from datetime import datetime
 from enum import Enum
@@ -88,3 +88,19 @@ class RSVPOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+T = TypeVar('T')
+
+class PaginationMetadata(BaseModel):
+    """Pagination metadata for list responses."""
+    total: int
+    page: int
+    per_page: int
+    total_pages: int
+    has_next: bool
+    has_prev: bool
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Generic paginated response wrapper."""
+    items: List[T]
+    pagination: PaginationMetadata
