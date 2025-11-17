@@ -58,28 +58,44 @@ class TestEventEndpoints:
         
         assert response.status_code == 200
         data = response.json()
-        assert isinstance(data, list)
-        assert len(data) > 0
-        assert all("id" in event and "title" in event for event in data)
+        assert "items" in data
+        assert "pagination" in data
+        assert isinstance(data["items"], list)
+        assert len(data["items"]) > 0
+        assert all("id" in event and "title" in event for event in data["items"])
+        
+        # Verify pagination metadata
+        pagination = data["pagination"]
+        assert "total" in pagination
+        assert "page" in pagination
+        assert "per_page" in pagination
+        assert "total_pages" in pagination
+        assert "has_next" in pagination
+        assert "has_prev" in pagination
     
     async def test_list_events_pagination(
         self, client: AsyncClient, test_events
     ):
         """Test event list pagination."""
         # Get first page
-        response1 = await client.get("/api/v1/events/?skip=0&limit=2")
+        response1 = await client.get("/api/v1/events/?page=1&per_page=2")
         assert response1.status_code == 200
-        page1 = response1.json()
-        assert len(page1) == 2
+        data1 = response1.json()
+        assert len(data1["items"]) == 2
+        assert data1["pagination"]["page"] == 1
+        assert data1["pagination"]["per_page"] == 2
+        assert data1["pagination"]["has_prev"] is False
         
         # Get second page
-        response2 = await client.get("/api/v1/events/?skip=2&limit=2")
+        response2 = await client.get("/api/v1/events/?page=2&per_page=2")
         assert response2.status_code == 200
-        page2 = response2.json()
-        assert len(page2) == 2
+        data2 = response2.json()
+        assert len(data2["items"]) == 2
+        assert data2["pagination"]["page"] == 2
+        assert data2["pagination"]["per_page"] == 2
         
         # Verify different events
-        assert page1[0]["id"] != page2[0]["id"]
+        assert data1["items"][0]["id"] != data2["items"][0]["id"]
     
     async def test_list_events_filter_by_category(
         self, client: AsyncClient, organizer_token, mock_publish_event
@@ -113,7 +129,8 @@ class TestEventEndpoints:
         # Filter by technology category
         response = await client.get("/api/v1/events/?category=technology")
         assert response.status_code == 200
-        events = response.json()
+        data = response.json()
+        events = data["items"]
         assert all(e["category"] == "technology" for e in events if e.get("category"))
     
     async def test_list_events_search(
@@ -135,7 +152,8 @@ class TestEventEndpoints:
         # Search for "python"
         response = await client.get("/api/v1/events/?search=python")
         assert response.status_code == 200
-        events = response.json()
+        data = response.json()
+        events = data["items"]
         assert len(events) > 0
         # Verify at least one event matches
         assert any("python" in e["title"].lower() or 
